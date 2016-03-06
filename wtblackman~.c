@@ -14,7 +14,7 @@
 #include "ext_obex.h"		// required for "new" style objects
 #include "z_dsp.h"			// required for MSP objects
 
-#define SAMPLES (512 )
+#define SAMPLES (2048)
 #define FIX_ZERO(x) (x ? x : 0.000001)
 
 // struct to represent the object's state
@@ -24,7 +24,14 @@ typedef struct _wtblackman {
     unsigned long long N;                // Number of samples of original waveform.
     double f;
     double f_1;                     // Previous value of f
+    double xn_1;                    // Previously calculated output sample
     unsigned long i;
+    double index;
+    double an_1;                      // Frequency multipler from previous sample.
+    double in_1;
+    double Nn;                      // Theoretical number of samples in one period at target frequency
+    double Nn_1;                    // Theoretical number of samples in one period at last samples target frequency.
+    int switch_ok;                  // 1 if osc is at the zero crossing right at the end of 1 period. 0 Otherwise.
 } t_wtblackman;
 
 static double *wavetable;
@@ -47,6 +54,12 @@ static t_class *t_wtblackman_class = NULL;
 
 
 /* ---------------- HELPER FUNCTIONS ---------------- */
+
+int approx_zero(double x)
+{
+    double thresh = 5E-15;
+    return (x <= 0 + thresh && x >= 0 - thresh);
+}
 
 /* Taken from http://stackoverflow.com/questions/12276675/modulus-with-negative-numbers-in-c */
 static long mod(long a, long b)
@@ -213,74 +226,45 @@ void t_wtblackman_dsp64(t_wtblackman *x, t_object *dsp64, short *count, double s
 
     x->i = 0;
     x->R1 = samplerate;
-    x->N = SAMPLES;
-  
+    x->Nn_1 = x->Nn = x->N = SAMPLES;
     object_method(dsp64, gensym("dsp_add64"), x, t_wtblackman_perform64, 0, NULL);
 }
 
 // this is the 64-bit perform method audio vectors
 void t_wtblackman_perform64(t_wtblackman *x, t_object *dsp64, double **ins, long numins, double **outs, long numouts, long sampleframes, long flags, void *userparam)
 {
+    
     double a;       // Coefficient: how much faster target frequency is from orig frequency
-    double index;
-
     double f0;
     long n = sampleframes;
     double *out = *outs;
     double *frqs =ins[0];
-    unsigned long long N1;       /* The number of samples in one period at the desired frequency */
     
     f0 = x->R1 / FIX_ZERO((double)SAMPLES);
-
+    
     x->f = *frqs++;
     a = x->f / f0;
-    N1 = x->R1 / (a * f0);
+
     while (n--) {
-        a = x->f / f0;
-        if (x->f != x->f_1) {
-            /* Specified frequency has changed */
-            N1 = x->R1 / (a * f0);
-        }
-        index = fmod(x->i * a, (double)x->N);
-        *out++ = interpolate4((((long)index) - 1),
-                              wavetable[mod((((long)index) - 1), SAMPLES)],
-                              ((long)index),
-                              wavetable[mod(((long)index), SAMPLES)],
-                              (((long)index) + 1),
-                              wavetable[mod((((long)index) + 1), SAMPLES)],
-                              (((long)index) + 2),
-                              wavetable[mod((((long)index) + 2), SAMPLES)],
-                              index);
+        x->index += a;
+        if (x->index > x->N - 1)
+            x->index = fmod(x->index, x->N);
+        *out++ = interpolate4((((long)x->index) - 1),
+                              wavetable[mod((((long)x->index) - 1), SAMPLES)],
+                              ((long)x->index),
+                              wavetable[mod(((long)x->index), SAMPLES)],
+                              (((long)x->index) + 1),
+                              wavetable[mod((((long)x->index) + 1), SAMPLES)],
+                              (((long)x->index) + 2),
+                              wavetable[mod((((long)x->index) + 2), SAMPLES)],
+                              x->index);
         x->f_1 = x->f;
         x->f = *frqs++;
-        if (x->i >= N1 - 1)
-            x->i = 0;
-        else
-            ++x->i;
+        
+        if (x->f != x->f_1) {
+            /* Specified frequency has changed */
+            a = x->f / f0;
+        }
     }
-   
-//     Linear interpolation version 
-//    double b;       // In y = mx + b
-//    double m;
-//    unsigned int j[2];
-//    while (n--) {
-//        if (x->f != x->f_1) {
-//            /* Specified frequency has changed */
-//            N1 = x->R1 / (a * f0);
-//        }
-//        a = x->f / f0;
-//        index = fmod(x->i * a, (double)SAMPLES);
-//        j[0] = floor(index);
-//        j[1] = j[0] + 1;
-//        m = wavetable[j[1]] - wavetable[j[0]];    // Delta x is always 1 in this case
-//        b = wavetable[j[0]] - (m * j[0]);
-//        *(out++) = (m * index) + b;
-//        x->f_1 = x->f;
-//        x->f = *frqs++;
-//        if (x->i >= N1 - 1)
-//            x->i = 0;
-//        else
-//            ++x->i;
-//    }
 }
 
