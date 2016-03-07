@@ -21,17 +21,10 @@
 typedef struct _wtblackman {
     t_pxobject          ob;			// the object itself (t_pxobject in MSP instead of t_object)
     double R1;                      // Current sample rate
-    unsigned long long N;                // Number of samples of original waveform.
-    double f;
+    unsigned long long N;           // Number of samples of original waveform.
+    double f;                       // Frequency of oscillator
     double f_1;                     // Previous value of f
-    double xn_1;                    // Previously calculated output sample
-    unsigned long i;
-    double index;
-    double an_1;                      // Frequency multipler from previous sample.
-    double in_1;
-    double Nn;                      // Theoretical number of samples in one period at target frequency
-    double Nn_1;                    // Theoretical number of samples in one period at last samples target frequency.
-    int switch_ok;                  // 1 if osc is at the zero crossing right at the end of 1 period. 0 Otherwise.
+    double index;                   // Phase accumulator
 } t_wtblackman;
 
 static double *wavetable;
@@ -69,7 +62,7 @@ void init_wavetable(double *table, unsigned long long N /*,double sample_rate */
 {
     unsigned int i;
     
-    post("init wavetable called");
+//    post("init wavetable called");
     for (i = 0; i < N; ++i)
         table[i] = 0.42 - (0.5 * cos(2 * M_PI * i / (double)N))+ (0.08 * cos(4.0 * M_PI * i / (double)N));
     
@@ -224,9 +217,9 @@ void t_wtblackman_dsp64(t_wtblackman *x, t_object *dsp64, short *count, double s
     // 5: flags to alter how the signal chain handles your object -- just pass 0
     // 6: a generic pointer that you can use to pass any additional data to your perform method
 
-    x->i = 0;
+    x->index = 0;
     x->R1 = samplerate;
-    x->Nn_1 = x->Nn = x->N = SAMPLES;
+    x->N = SAMPLES;
     object_method(dsp64, gensym("dsp_add64"), x, t_wtblackman_perform64, 0, NULL);
 }
 
@@ -250,13 +243,13 @@ void t_wtblackman_perform64(t_wtblackman *x, t_object *dsp64, double **ins, long
         if (x->index > x->N - 1)
             x->index = fmod(x->index, x->N);
         *out++ = interpolate4((((long)x->index) - 1),
-                              wavetable[mod((((long)x->index) - 1), SAMPLES)],
+                              wavetable[mod((((long)x->index) - 1), x->N)],
                               ((long)x->index),
-                              wavetable[mod(((long)x->index), SAMPLES)],
+                              wavetable[mod(((long)x->index), x->N)],
                               (((long)x->index) + 1),
-                              wavetable[mod((((long)x->index) + 1), SAMPLES)],
+                              wavetable[mod((((long)x->index) + 1), x->N)],
                               (((long)x->index) + 2),
-                              wavetable[mod((((long)x->index) + 2), SAMPLES)],
+                              wavetable[mod((((long)x->index) + 2), x->N)],
                               x->index);
         x->f_1 = x->f;
         x->f = *frqs++;
