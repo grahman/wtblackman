@@ -15,7 +15,6 @@
 #include "z_dsp.h"			// required for MSP objects
 
 #define SAMPLES (2048)
-#define FIX_ZERO(x) (x ? x : 0.000001)
 
 // struct to represent the object's state
 typedef struct _wtblackman {
@@ -62,65 +61,27 @@ void init_wavetable(double *table, unsigned long long N /*,double sample_rate */
 {
     unsigned int i;
     
-//    post("init wavetable called");
     for (i = 0; i < N; ++i)
         table[i] = 0.42 - (0.5 * cos(2 * M_PI * i / (double)N))+ (0.08 * cos(4.0 * M_PI * i / (double)N));
-    
-    /* Cos wavetable oscillator for tests */
-//    for (i = 0; i < N; ++i) {
-//        table[i] = cos(2.0 * M_PI * i / (double)N);
-//    }
 }
 
 /* Function interpolate4:
     4-pt Lagrange interpolation implementation */
 static inline double interpolate4(double x0, double y0, double x1, double y1, double x2, double y2, double x3, double y3, double index)
 {
-    int i;
     double L[4] = {0};
     double out = 0;
     
-    for (i = 0; i < 4; ++i) {
-        switch(i) {
-            case 0: {
-                L[i] = ((index - x1) * (index - x2) * (index - x3)) / ((x0 - x1) * (x0 - x2) * (x0 - x3));
-                break;
-            }
-            case 1: {
-                L[i] = ((index - x0) * (index - x2) * (index - x3)) / ((x1 - x0) * (x1 - x2) * (x1 - x3));
-                break;
-            }
-            case 2: {
-                L[i] = ((index - x0) * (index - x1) * (index - x3)) / ((x2 - x0) * (x2 - x1) * (x2 - x3));
-                break;
-            }
-            case 3: {
-                L[i] = ((index - x0) * (index - x1) * (index - x2)) / ((x3 - x0) * (x3 - x1) * (x3 - x2));
-                break;
-            }
-        }
-    }
-    
-    for (i = 0; i < 4; ++i) {
-        switch(i) {
-            case 0: {
-                out += (y0 * L[i]);
-                break;
-            }
-            case 1: {
-                out += (y1 * L[i]);
-                break;
-            }
-            case 2: {
-                out += (y2 * L[i]);
-                break;
-            }
-            case 3: {
-                out += (y3 * L[i]);
-                break;
-            }
-        }
-    }
+    L[0] = ((index - x1) * (index - x2) * (index - x3)) / ((x0 - x1) * (x0 - x2) * (x0 - x3));
+    L[1] = ((index - x0) * (index - x2) * (index - x3)) / ((x1 - x0) * (x1 - x2) * (x1 - x3));
+    L[2] = ((index - x0) * (index - x1) * (index - x3)) / ((x2 - x0) * (x2 - x1) * (x2 - x3));
+    L[3] = ((index - x0) * (index - x1) * (index - x2)) / ((x3 - x0) * (x3 - x1) * (x3 - x2));
+
+    out += (y0 * L[0]);
+    out += (y1 * L[1]);
+    out += (y2 * L[2]);
+    out += (y3 * L[3]);
+
     return out;
 }
 
@@ -155,11 +116,10 @@ void *t_wtblackman_new(t_symbol *s, long argc, t_atom *argv)
             }
             init_wavetable(wavetable, SAMPLES);
         }
-        x->N = SAMPLES;
         dsp_setup((t_pxobject *)x, 2);	// MSP inlets: arg is # of inlets and is REQUIRED!
-        // use 0 if you don't need inlets
+                                        // use 0 if you don't need inlets
         outlet_new(x, "signal"); 		// signal outlet (note "signal" rather than NULL)
-        ++instances;    // Global static variable
+        ++instances;                    // Global static variable
     }
     return (x);
 }
@@ -233,7 +193,7 @@ void t_wtblackman_perform64(t_wtblackman *x, t_object *dsp64, double **ins, long
     double *out = *outs;
     double *frqs =ins[0];
     
-    f0 = x->R1 / FIX_ZERO((double)SAMPLES);
+    f0 = x->R1 /(double)x->N;
     
     x->f = *frqs++;
     a = x->f / f0;
